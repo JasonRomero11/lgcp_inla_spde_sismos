@@ -80,11 +80,15 @@ Caracterización del catálogo sísmico 2005–2020 del **Servicio Geológico Co
 
 ### 2. Simulación LGCP y Estimación de Priors mediante CNN
 
-Para construir distribuciones a priori informativas sobre los hiperparámetros del campo Matérn (rango `r` y desviación estándar `σ`), se adoptó el enfoque de **Verönneau-Iphigenie et al. (2022)**:
+Para construir distribuciones a priori informativas sobre los hiperparámetros del campo Matérn (rango `r` y desviación estándar `σ`), se adoptó el enfoque de **Verönneau-Iphigenie et al. (2022)**, extendido con features de primer orden:
 
-- Se generan **10,000 realizaciones** de procesos LGCP bajo parámetros aleatorios `(μ, σ², scale)`.
-- Para cada realización se calcula la **función L de Besag** `L̂(r)` y se extraen 12 características funcionales.
-- Una **red neuronal CNN-1D** aprende la relación entre las características de `L̂(r)` y los parámetros generadores.
+- Se generan **15,000 realizaciones** de procesos LGCP para entrenamiento y **1,000 para test**, sobre la ventana real de Colombia (EPSG:3116), bajo parámetros aleatorios: `μ ∈ [−19.5, −18.5]`, `σ² ∈ [1.0, 3.0]`, `scale ∈ [80 km, 200 km]`.
+- Cada realización se simula con `rLGCP(model = "matern", nu = 1)` en una grilla de 128×128, filtrando patrones con entre 30 y 150,000 puntos.
+- Para cada realización se extrae la **función L de Besag** `L̂(r) − r` (corrección de borde, `rmax = 200 km`, 128 valores) y **8 features de primer orden** que caracterizan la heterogeneidad espacial de la intensidad:
+  - **Quadrat-based (3):** varianza de conteos, índice de dispersión (VMR), ratio max/min.
+  - **Kernel density (5):** varianza, asimetría, curtosis, entropía normalizada y coeficiente de variación del campo suavizado (bandwidth = 50 km, grilla 64×64).
+- La simulación se ejecuta en paralelo (`pbmcapply`, 10 cores) por chunks de 50 realizaciones, guardando resultados incrementales en archivos `.rds`.
+- Una **red neuronal CNN-1D** (entrenada externamente en Python con Keras/TensorFlow) aprende la relación entre L̂(r) + features de primer orden y los parámetros generadores `(μ, σ², scale)`.
 - La CNN se aplica al catálogo real para obtener estimaciones iniciales de los parámetros a priori.
 
 **Parámetros estimados para Colombia:**
@@ -286,7 +290,7 @@ scripts/ESDA/ESDA.R
 ```
 scripts/SIMULACIONES_LGCP/simulations_rglcp.R
 ```
-*Genera ~10,000 realizaciones LGCP y extrae características de L̂(r). La CNN se entrena externamente en Python (Keras/TensorFlow).*
+*Genera 15,000 realizaciones LGCP (train) + 1,000 (test) sobre la ventana continental de Colombia. Para cada realización extrae la función L̂(r) (128 valores) y 8 features de primer orden (quadrat-based + kernel density). La simulación se paraleliza en 10 cores por chunks de 50 y guarda `.rds` incrementales. La CNN se entrena externamente en Python (Keras/TensorFlow).*
 
 ### Paso 4: Modelo espacial (año 2020)
 ```

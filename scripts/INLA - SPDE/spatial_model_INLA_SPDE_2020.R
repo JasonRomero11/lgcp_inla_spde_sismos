@@ -32,7 +32,7 @@
 #
 # INPUTS:
 #   - covariables_rds/shapeZona_sp               : polígono continental Colombia (EPSG:3116)
-#   - data_new/EventosColPointsPlanas31162005_2020_continental.gpkg : catálogo sísmico
+#   - Data/EventosColPointsPlanas31162005_2020_continental.gpkg : catálogo sísmico
 #   - covariables_rds/*_im_scaled.rds            : covariables como objetos im de spatstat
 #
 # OUTPUTS:
@@ -85,7 +85,7 @@ if (!requireNamespace("fmesher", quietly = TRUE)) {
 # SECCIÓN 2: CONFIGURACIÓN DE RUTAS Y PARÁMETROS GLOBALES
 # =============================================================================
 
-setwd("/home/jasonromeroia/Documents/Personal/TesisUDFJCMCIC/solucion2025/earthquakes_lgcp_inla/")
+setwd("~/Documents/Personal/lgcp_inla_spde_sismos")
 
 # Directorio de covariables preprocesadas (.rds)
 files_rds <- "covariables_rds"
@@ -96,10 +96,10 @@ path_image_results <- 'imagenes_doc'
 # Cargar funciones del libro SPDE (book.mesh.dual, etc.) y utilitarias
 source("R/spde-book-functions.R")
 source("R/discrete_gradient.R")
-source("script_spatial/utils.R")   # → create_ppp(), create_mesh(), plot_spatial_effects_*(), etc.
+source("R/utils.R")   # → create_ppp(), create_mesh(), plot_spatial_effects_*(), etc.
 
 # Ruta al catálogo sísmico (GeoPackage, EPSG:3116)
-path_file_seismic <- "data_new/EventosColPointsPlanas31162005_2020_continental.gpkg"
+path_file_seismic <- "Data/EventosColPointsPlanas31162005_2020_continental.gpkg"
 
 
 # =============================================================================
@@ -108,15 +108,15 @@ path_file_seismic <- "data_new/EventosColPointsPlanas31162005_2020_continental.g
 
 # Intercepto: media del proceso log-Gaussiano (en log-escala)
 # Corresponde a log(intensidad media) ≈ exp(-17.77) ≈ 2.1e-8 eventos/m²
-mu_simulated <- -17.76713
+mu_simulated <- -20.6119
 
 # Desviación estándar del campo latente Matérn
 # Prior PC: P(sigma > scale_simulated) = 0.5
-scale_simulated <- 2.400884
+scale_simulated <- 3.8939
 
 # Rango espacial de correlación (metros, ~110 km)
 # Prior PC: P(rango < range_simulated) = 0.5
-range_simulated <- 110342.3
+range_simulated <- 59900
 
 # Banderas de control del script
 save_graphics         <- F     # Si TRUE, guarda los gráficos en disco
@@ -772,3 +772,4 @@ resultado_int <- plot_intensidades_modelos(
   use_quantile_limits = TRUE,
   q                  = c(0.02, 0.98) # Recortar outliers extremos
 )
+
