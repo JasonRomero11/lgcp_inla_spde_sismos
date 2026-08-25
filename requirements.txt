@@ -1,0 +1,13 @@
+# Preprocesamiento del catálogo (scripts/preproccesing.ipynb)
+numpy
+pandas
+geopandas
+shapely
+pyogrio
+pyproj
+matplotlib
+seismostats
+bruces
+
+# Anomalías gravimétricas (scripts/ANOMALIAS_GRAVIMETRICAS/)
+rasterio

@@ -1,0 +1,70 @@
+# ── Entornos ────────────────────────────────────────────────
+/.venv
+venv/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# ── Datos (crudos, procesados, catálogos) ───────────────────
+/Data/
+/covariables_rds/
+*.gpkg
+*.zip
+*.dat
+
+# ── Imágenes y figuras generadas ────────────────────────────
+# (las que ilustran el README se versionan explícitamente con `git add -f`)
+/Imagenes/
+/imagenes_doc/
+/figuras/
+/DiagramasArquitectura/
+*.png
+
+# ── Documentos ──────────────────────────────────────────────
+/docs/
+*.pdf
+
+# ── Modelos y objetos serializados ──────────────────────────
+*.rds
+*.RData
+*.rda
+*.h5
+*.hdf5
+*.keras
+*.pt
+*.pth
+*.pkl
+*.joblib
+
+# ── Sesión de R, Jupyter y editores ─────────────────────────
+.Rhistory
+.Rapp.history
+.Ruserdata
+.Rproj.user/
+.claude/settings.local.json
+.DS_Store
+
+# ── Herramientas auxiliares (no son parte del pipeline) ─────
+/tools/
+
+# ── Artefactos de compilación (LaTeX, Fortran) ──────────────
+*.aux
+*.log
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.o
+*.mod
+
+# ── Notas y scratch ─────────────────────────────────────────
+nota.txt
+verify_gk.py
+
+# ── Histórico de iteraciones previas (no versionar) ─────────
+/scripts/INLA - SPDE_histoy_bk/
+/scripts/INLA_SPDE/spatio_temporal_INLA_SPDE_2005_2020.R
+/scripts/INLA_SPDE/spatio_temporal_INLA_SPDE_2005_2020_finalBK.R
+/scripts/preprocessing_mc_first.ipynb
+/scripts/preproccesing copy.ipynb
+/scripts/preproccesing (copy).ipynb
+/scripts/declustering_espacial_2020.ipynb

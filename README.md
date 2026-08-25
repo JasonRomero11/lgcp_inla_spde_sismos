@@ -9,7 +9,7 @@ Universidad Distrital Francisco José de Caldas
 
 ## Descripción del Proyecto
 
-Este repositorio contiene los scripts de R desarrollados para el ajuste de un modelo de **Proceso Cox Log-Gaussiano (LGCP)** aplicado a la sismicidad continental de Colombia para el período 2005–2020, usando la metodología Bayesiana **INLA-SPDE**.
+Este repositorio contiene los scripts de R y Python desarrollados para la preparación del catálogo y el ajuste de un modelo de **Proceso Cox Log-Gaussiano (LGCP)** aplicado a la sismicidad continental de Colombia para el período 2005–2020, usando la metodología Bayesiana **INLA-SPDE**.
 
 El trabajo aborda tres etapas:
 
@@ -26,17 +26,22 @@ El trabajo aborda tres etapas:
 ## Estructura del Repositorio
 
 ```
-RepositorioTesisMCIC/
+lgcp_inla_spde_sismos/
 │
 ├── scripts/                         # Scripts principales del análisis
+│   ├── preproccesing.ipynb          # Compilación del catálogo, QC, Mc y declustering (Python)
 │   ├── ESDA/
-│   │   └── ESDA.R                   # Análisis exploratorio de datos espaciales
-│   ├── INLA - SPDE/
+│   │   ├── ESDA.R                   # Análisis exploratorio de datos espaciales
+│   │   └── utils.R                  # Funciones auxiliares del ESDA
+│   ├── INLA_SPDE/
 │   │   ├── utils.R                  # Funciones auxiliares reutilizables
-│   │   ├── spatial_model_INLA_SPDE_2020.R       # Modelo espacial (año 2020)
-│   │   └── spatio_temporal_INLA_SPDE_2005_2020.R # Modelo espacio-temporal
+│   │   ├── spatial_model_INLA_SPDE_2020.R              # Modelo espacial (año 2020)
+│   │   └── spatio_temporal_INLA_SPDE_2005_2020_final.R # Modelo espacio-temporal
 │   ├── SIMULACIONES_LGCP/
-│   │   └── simulations_rglcp.R      # Simulaciones LGCP para entrenamiento CNN
+│   │   └── simulations_rGLCP.R      # Simulaciones LGCP para entrenamiento CNN
+│   ├── ENTRENANDO_CNN/
+│   │   ├── CNN_train_and_predict.R  # Entrenamiento CNN y predicción de priors
+│   │   └── replot_figures.R         # Regeneración de figuras de la CNN
 │   └── ANOMALIAS_GRAVIMETRICAS/
 │       └── anomaliasGravimetricas.ipynb  # Cálculo de anomalías isostáticas (Python)
 │
@@ -50,19 +55,14 @@ RepositorioTesisMCIC/
 │   ├── dextral_im_scaled.rds        # Distancia a fallas dextrales escalada
 │   ├── sinestral_im_scaled.rds      # Distancia a fallas sinestrales escalada
 │   └── shapeZona_sp                 # Shapefile de la zona de estudio (continental)
+│                                    # (también están las versiones sin escalar `*_im.rds`)
 │
 ├── R/                               # Scripts de referencia (INLA-SPDE book)
 │   ├── spde-book-functions.R        # Funciones auxiliares del libro SPDE (Lindgren)
 │   ├── discrete_gradient.R          # Gradiente discreto para visualización
 │   └── ...                          # Otros ejemplos de referencia INLA
 │
-├── DiagramasArquitectura/           # Diagramas de la arquitectura CNN
-│   ├── arquitectura.png             # Arquitectura CNN-1D propuesta
-│   ├── arquitecturaReferencia.png   # Arquitectura CNN de referencia (VIHRS 2022)
-│   ├── simulacionlgcp.png           # Flujo de simulación LGCP (versión base)
-│   └── simulacionlgcp_improve.png   # Flujo de simulación LGCP (versión mejorada)
-│
-└── Imagenes/                        # Figuras organizadas por etapa del análisis
+└── Imagenes/                        # Figuras que ilustran este README
     ├── ESDA/                        # Mapas y gráficos exploratorios
     ├── Metodologia_SPDE/            # Malla triangular y teselación de Voronoi
     ├── CNN_Priors/                  # Entrenamiento CNN y estimación de priors
@@ -80,26 +80,50 @@ Caracterización del catálogo sísmico 2005–2020 del **Servicio Geológico Co
 
 ### 2. Simulación LGCP y Estimación de Priors mediante CNN
 
-Para construir distribuciones a priori informativas sobre los hiperparámetros del campo Matérn (rango `r` y desviación estándar `σ`), se adoptó el enfoque de **Verönneau-Iphigenie et al. (2022)**, extendido con features de primer orden:
+Para construir distribuciones a priori informativas sobre los hiperparámetros del campo Matérn (rango `r` y desviación estándar `σ`), se adoptó el enfoque de **Vihrs (2022)**, extendido con features de primer orden:
 
-- Se generan **15,000 realizaciones** de procesos LGCP para entrenamiento y **1,000 para test**, sobre la ventana real de Colombia (EPSG:3116), bajo parámetros aleatorios: `μ ∈ [−19.5, −18.5]`, `σ² ∈ [1.0, 3.0]`, `scale ∈ [80 km, 200 km]`.
+- Se generan **15,000 realizaciones** de procesos LGCP para entrenamiento y **1,500 para test** (semilla independiente), sobre la ventana real de Colombia (EPSG:3116), bajo parámetros aleatorios: `σ² ∈ [0.5, 6.0]`, `scale ∈ [20 km, 300 km]`. La intensidad media `μ` no se muestrea directamente: se muestrea `log E[N] ∈ [log 500, log 60,000]` y se despeja `μ = log(E[N]/|W|) − σ²/2`, garantizando cobertura homogénea de densidades en varios órdenes de magnitud.
 - Cada realización se simula con `rLGCP(model = "matern", nu = 1)` en una grilla de 128×128, filtrando patrones con entre 30 y 150,000 puntos.
-- Para cada realización se extrae la **función L de Besag** `L̂(r) − r` (corrección de borde, `rmax = 200 km`, 128 valores) y **8 features de primer orden** que caracterizan la heterogeneidad espacial de la intensidad:
+- Para cada realización se extrae la **curva centrada** `D(r) = L̂(r) − r` de la función L de Besag (corrección de borde, `rmax = 200 km`, **513 valores**) y **8 features de primer orden** que caracterizan la heterogeneidad espacial de la intensidad:
   - **Quadrat-based (3):** varianza de conteos, índice de dispersión (VMR), ratio max/min.
   - **Kernel density (5):** varianza, asimetría, curtosis, entropía normalizada y coeficiente de variación del campo suavizado (bandwidth = 50 km, grilla 64×64).
-- La simulación se ejecuta en paralelo (`pbmcapply`, 10 cores) por chunks de 50 realizaciones, guardando resultados incrementales en archivos `.rds`.
-- Una **red neuronal CNN-1D** (entrenada externamente en Python con Keras/TensorFlow) aprende la relación entre L̂(r) + features de primer orden y los parámetros generadores `(μ, σ², scale)`.
-- La CNN se aplica al catálogo real para obtener estimaciones iniciales de los parámetros a priori.
+- La simulación se ejecuta en paralelo (`pbmcapply`, 11 cores) por chunks de 50 realizaciones, guardando resultados incrementales en archivos `.rds`.
+- Una **red neuronal CNN-1D** (entrenada externamente en Python con Keras/TensorFlow) aprende la relación entre `D(r)` + conteo `N` + features de primer orden y los parámetros generadores `(μ, σ², scale)`. Se comparan dos arquitecturas: la **CNN de referencia** (Vihrs 2022, solo curva + N) y la **CNN + descriptores** (con las 8 features). La segunda mejora la recuperación de parámetros sobre el test independiente, en particular la escala espacial (`R² = 0.5663 → 0.8276`) y la varianza (`R² = 0.6481 → 0.7603`), rompiendo parcialmente la degeneración entre σ² y scale.
+- La CNN se aplica al catálogo real (2020, `N = 14,346` eventos) para obtener las estimaciones a priori.
 
-**Parámetros estimados para Colombia:**
+**Parámetros estimados para Colombia** (modelo CNN + descriptores, adoptado como prior):
 
 | Parámetro | Valor estimado |
 |-----------|---------------|
-| μ (intensidad media log) | −17.77 |
-| σ² (varianza del campo latente) | 2.40 |
-| scale / rango espacial | 110,342 m (~110 km) |
+| μ (intensidad media log) | −21.6429 |
+| σ² (varianza del campo latente) | 6.0905 |
+| scale (spatstat) | 72,346 m (~72 km) |
 
-Estos valores alimentan los **PC-priors** (Penalised Complexity priors) del modelo INLA-SPDE.
+Estos valores alimentan los **PC-priors** (Penalised Complexity priors) del modelo INLA-SPDE. La conversión a la parametrización de INLA es `σ_INLA = √σ² = 2.468` y `rango_INLA = 2 · scale = 144,692 m (~145 km)`, ya que `rLGCP` (Matérn de spatstat) evalúa la correlación en `z = (h/scale)·√(2ν)`.
+
+#### Arquitectura de la red neuronal (CNN + descriptores)
+
+![Arquitectura CNN propuesta](Imagenes/CNN_Priors/cnn_architecture.png)
+
+La arquitectura propuesta parte del modelo de referencia de Vihrs (2022) y le añade una **tercera rama** dedicada a los descriptores de intensidad. La decisión de diseño clave es que **el tronco convolucional y el cabezal denso no se modifican** respecto de la referencia, de modo que la comparación entre ambos modelos constituye una **ablación limpia**: cualquier mejora es atribuible únicamente a la incorporación de los descriptores, y no a un aumento de capacidad del modelo.
+
+Se combinan tres ramas:
+
+- **Rama convolucional** — recibe la curva estandarizada `D(r) = L̂(r) − r ∈ ℝ^{513×1}` y aplica tres bloques `Conv1D` de 64 filtros con *kernel* 7 y activación ReLU, cada uno seguido de *Batch Normalization*; los dos primeros incorporan *MaxPooling* de tamaño 5. La dimensión evoluciona `513 → 507 → 101 → 95 → 19 → 13`, y tras `Flatten` produce `z_conv ∈ ℝ^{832}` (832 = 13 × 64).
+- **Rama del conteo** — el número total de puntos `N` (estandarizado) entra como un único escalar `Ñ`. Es la principal fuente de información sobre `μ`, ya que `D(r)` está normalizada por la intensidad y es casi insensible a este parámetro.
+- **Rama de descriptores** *(la novedad)* — el vector `f ∈ ℝ^8` de descriptores de intensidad pasa por una capa densa de 32 neuronas (ReLU) + *Batch Normalization* y una segunda densa de 16, produciendo `z_feat ∈ ℝ^{16}`.
+
+Las tres ramas se concatenan en `a⁽⁰⁾ = [z_conv; Ñ; z_feat] ∈ ℝ^{849}`, que alimenta un cabezal denso `64 → 32` (ReLU) y una capa de salida lineal de 3 neuronas `(μ̂, σ̂², ŝ)` (activación lineal porque son valores reales sin acotar). El modelo tiene **116,275 parámetros**, de los cuales 58,752 pertenecen al tronco convolucional.
+
+> **Detalle interpretativo:** de los 849 valores que entran al cabezal, 832 (98 %) provienen de la curva `D(r)` y solo 16 (< 2 %) de la rama de descriptores. Que una fracción tan pequeña produzca la mejora documentada refuerza que no se trata de mayor capacidad del modelo, sino de **información de primer orden** que `L̂(r) − r` no puede contener por construcción.
+
+**Entrenamiento:** pérdida MSE sobre los parámetros estandarizados, optimizador Adam (`lr = 10⁻³`), hasta 200 épocas, lotes de 64. Control de sobreajuste con *early stopping* (paciencia 15, restaurando los pesos de la mejor época) y *ReduceLROnPlateau* (factor 0.5, paciencia 7, hasta `10⁻⁶`). No se usa *Dropout* ni `L2`: la normalización por lotes y la parada temprana bastan.
+
+| Parámetro | CNN referencia (R²) | CNN + descriptores (R²) |
+|-----------|--------------------|-------------------------|
+| μ (intensidad media log) | 0.8099 | **0.8807** |
+| σ² (varianza del campo latente) | 0.6481 | **0.7603** |
+| scale (escala espacial) | 0.5663 | **0.8276** |
 
 ### 3. Modelo LGCP Espacial (año 2020)
 
@@ -117,7 +141,7 @@ Se ajustan cuatro especificaciones del modelo LGCP para evaluar el efecto de los
 - Distancia a fallas inversas
 - Distancia a fallas normales
 - Anomalía isostática
-- Elevación (MSNM) *(no significativa, excluida en modelo final)*
+- Elevación (MSNM) *(no significativa en el modelo espacial 2020; se vuelve significativa, β ≈ 0.215, al incorporar la componente temporal)*
 
 ### 4. Modelo LGCP Espacio-Temporal (2005–2020)
 
@@ -157,9 +181,15 @@ donde `Q_S` es la matriz de precisión espacial SPDE y `Q_T` es la matriz de pre
 
 ### Validación
 
+**Modelo espacial (2020):**
 - El modelo **M3** supera consistentemente a M2 en Log-Score y LCPO.
 - Bootstrap con B=10,000: `P(M3 > M2) = 100%`, IC 95% completamente positivo `[0.35, 0.78]`.
 - Residuos de Pearson sin estructura espacial sistemática (ausencia de sesgo).
+
+**Modelo espacio-temporal (2005–2020):**
+- El modelo **M1** (con prior PC) supera a **M0** (sin prior) en Log-Score y LCPO en todos los períodos; ambos incluyen las covariables, por lo que la brecha absoluta es moderada (las covariables ya explican el grueso de la señal) pero **sistemática**.
+- Bootstrap por período: `P(Δ > 0) = 100%` en los 8 períodos. La ventaja del prior es **dinámica**: la diferencia media en Log-Score crece de `Δ̄ = 26.1` (2005–2006) a `Δ̄ = 160.0` (2019–2020), amplificándose en los períodos de mayor actividad sísmica.
+- La distribución posterior de los hiperparámetros (rango, σ, AR(1)) es coherente con el prior de la CNN pero mucho más concentrada, confirmando que los datos son informativos sin ser forzados por el prior.
 
 ---
 
@@ -169,19 +199,37 @@ donde `Q_S` es la matriz de precisión espacial SPDE y `Q_T` es la matriz de pre
 |--------|-------------|
 | ![Malla](Imagenes/Metodologia_SPDE/Triangulacion.png) | Triangulación de Delaunay (K=4,309 vértices) |
 | ![Voronoi](Imagenes/Metodologia_SPDE/TriangulacionVoronoi.png) | Teselación de Voronoi para pesos de integración |
-| ![CNN](Imagenes/CNN_Priors/arquitectura.png) | Arquitectura CNN-1D propuesta |
+| ![CNN](Imagenes/CNN_Priors/cnn_architecture.png) | Arquitectura CNN-1D propuesta (curva `D(r)` + conteo `N` + 8 descriptores) |
+| ![R2](Imagenes/CNN_Priors/r2_comparison_final.png) | R² por parámetro: CNN referencia vs CNN + descriptores |
+| ![Scatter](Imagenes/CNN_Priors/scatter_final_combined.png) | Valores verdaderos vs predichos de `(μ, σ², scale)` |
 | ![Spatial M0-M1](Imagenes/Modelos_Espaciales/spatial_effects_M0_M1.png) | Campo latente: M0 vs M1 |
 | ![Spatial M2-M3](Imagenes/Modelos_Espaciales/spatial_effects_M2_M3.png) | Campo latente: M2 vs M3 |
-| ![Log-Score](Imagenes/Modelos_Espaciales/log_score_lcpo.png) | Comparación Log-Score y LCPO |
+| ![Log-Score](Imagenes/Modelos_Espaciales/log_score_lcpo.png) | Comparación Log-Score y LCPO (espacial) |
 | ![Bootstrap](Imagenes/Modelos_Espaciales/boostrap.png) | Distribución bootstrap M3 vs M2 |
+| ![Prior-Post](Imagenes/Modelos_Espaciales/prior_vs_posterior_hyper.png) | Prior (CNN) vs posterior de rango y σ |
+| ![Correlacion](Imagenes/Modelos_Espaciales/correlacion_matern.png) | Función de correlación Matérn posterior (M3) |
 | ![Intensidad](Imagenes/Modelos_Espaciales/result_intensidades.png) | Intensidad estimada λ(s) – Modelo M3 |
-| ![Temporal](Imagenes/Modelo_Espacio_Temporal/espacio_temporal.png) | Campo latente espacio-temporal |
+| ![Excedencia](Imagenes/Modelos_Espaciales/excedencia_M3.png) | Probabilidad de excedencia P(λ(s) > decil-90) – M3 |
+| ![Temporal](Imagenes/Modelo_Espacio_Temporal/sptial_effectM3_temporal.png) | Campo latente espacio-temporal por período |
+| ![Intensidad temporal](Imagenes/Modelo_Espacio_Temporal/result_intensidades_tempora.png) | Intensidad λ(s,t) por período bianual |
+| ![Prior-Post temporal](Imagenes/Modelo_Espacio_Temporal/prior_vs_posterior_hyper_temporal.png) | Prior (CNN) vs posterior: rango, σ y AR(1) |
+| ![Excedencia temporal](Imagenes/Modelo_Espacio_Temporal/excedencia_periodo_temporal.png) | Probabilidad de excedencia por período |
 
 ---
 
 ## Dependencias de Python
 
-### Paquetes requeridos (anomalías gravimétricas)
+### Preprocesamiento del catálogo (`scripts/preproccesing.ipynb`)
+
+```python
+numpy, pandas      # Cálculo numérico y tabular
+geopandas, shapely, pyogrio, pyproj  # Geometría, E/S vectorial y reproyección
+seismostats        # Estimación de Mc y b-value (MAXC, KS, b-stability)
+bruces             # Declustering de Reasenberg (1985)
+matplotlib         # Figuras
+```
+
+### Anomalías gravimétricas (`scripts/ANOMALIAS_GRAVIMETRICAS/`)
 
 ```python
 numpy       # Cálculo numérico
@@ -190,7 +238,7 @@ rasterio    # Lectura/escritura de rasters geoespaciales
 
 Instalación:
 ```bash
-pip install numpy rasterio
+pip install -r requirements.txt
 ```
 
 ---
@@ -280,6 +328,12 @@ covariables_rds/script_rds.R
 ```
 *Requiere los datos originales (rasters, shapefiles). Genera los archivos `.rds` en `covariables_rds/`.*
 
+### Paso 1b: Preprocesamiento del catálogo sísmico
+```
+scripts/preproccesing.ipynb
+```
+*Compila los históricos del SGC (1995–2020, formatos SEISAN y SeisComP), homogeniza magnitudes a Mw, aplica control de calidad, estima la magnitud de completitud Mc por etapa de red, aplica el declustering de Reasenberg y recorta a la zona continental. Genera `Data/gdf_espacial_2020.gpkg` y `Data/gdf_espacial_2005_2020.gpkg`.*
+
 ### Paso 2: Análisis exploratorio
 ```
 scripts/ESDA/ESDA.R
@@ -288,21 +342,22 @@ scripts/ESDA/ESDA.R
 
 ### Paso 3: Simulaciones LGCP y entrenamiento CNN
 ```
-scripts/SIMULACIONES_LGCP/simulations_rglcp.R
+scripts/SIMULACIONES_LGCP/simulations_rGLCP.R
+scripts/ENTRENANDO_CNN/CNN_train_and_predict.R
 ```
-*Genera 15,000 realizaciones LGCP (train) + 1,000 (test) sobre la ventana continental de Colombia. Para cada realización extrae la función L̂(r) (128 valores) y 8 features de primer orden (quadrat-based + kernel density). La simulación se paraleliza en 10 cores por chunks de 50 y guarda `.rds` incrementales. La CNN se entrena externamente en Python (Keras/TensorFlow).*
+*Genera 15,000 realizaciones LGCP (train) + 1,500 (test, semilla independiente) sobre la ventana continental de Colombia. Para cada realización extrae la curva centrada `D(r) = L̂(r) − r` (513 valores) y 8 features de primer orden (quadrat-based + kernel density). La simulación se paraleliza en 11 cores por chunks de 50 y guarda `.rds` incrementales. La CNN se entrena externamente en Python (Keras/TensorFlow).*
 
 ### Paso 4: Modelo espacial (año 2020)
 ```
-scripts/INLA - SPDE/spatial_model_INLA_SPDE_2020.R
+scripts/INLA_SPDE/spatial_model_INLA_SPDE_2020.R
 ```
-*Fuente: `scripts/INLA - SPDE/utils.R`. Requiere covariables `.rds`.*
+*Fuente: `scripts/INLA_SPDE/utils.R`. Requiere covariables `.rds`.*
 
 ### Paso 5: Modelo espacio-temporal (2005–2020)
 ```
-scripts/INLA - SPDE/spatio_temporal_INLA_SPDE_2005_2020.R
+scripts/INLA_SPDE/spatio_temporal_INLA_SPDE_2005_2020_final.R
 ```
-*Fuente: `scripts/INLA - SPDE/utils.R`. Requiere covariables `.rds`.*
+*Fuente: `scripts/INLA_SPDE/utils.R`. Requiere covariables `.rds`.*
 
 ---
 
@@ -317,7 +372,7 @@ scripts/INLA - SPDE/spatio_temporal_INLA_SPDE_2005_2020.R
 | Fallas geológicas (4 tipos) | SGC | `.shp` |
 | Volcanes | SGC | `.shp` |
 
-> **Nota:** Los datos de entrada **no están incluidos** en este repositorio por restricciones de tamaño y licencias. Los archivos `.rds` preprocesados sí están incluidos en `covariables_rds/`.
+> **Nota:** Los rasters y shapefiles originales **no están incluidos** en este repositorio por restricciones de tamaño y licencias. Sí están versionados el catálogo sísmico (`Data/EventosColPointsPlanas31162005_2020_continental.gpkg`), el límite continental (`Data/clip_zona_continental_simplificado.geojson`) y las covariables preprocesadas en `covariables_rds/`. Los históricos crudos del SGC que consume `scripts/preproccesing.ipynb` van en `Data/Historicos/` y tampoco se versionan.
 
 ---
 
@@ -327,7 +382,7 @@ scripts/INLA - SPDE/spatio_temporal_INLA_SPDE_2005_2020.R
 - Rue, H., Martino, S., & Chopin, N. (2009). Approximate Bayesian inference for latent Gaussian models using integrated nested Laplace approximations. *JRSS-B*, 71(2), 319–392.
 - Fuglstad, G.A., Simpson, D., Lindgren, F., & Rue, H. (2019). Constructing priors that penalize the complexity of Gaussian random fields. *JASA*, 114(525), 445–452.
 - Simpson, D., Rue, H., Riebler, A., Martins, T.K., & Sørbye, S.H. (2017). Penalising model component complexity: a principled practical approach to constructive priors. *Statistical Science*, 32(1), 1–28.
-- Verönneau-Iphigenie, H.R.S. et al. (2022). Simulation-based inference for spatial point processes using summary statistics. *Spatial Statistics*, 100668.
+- Vihrs, N. (2022). Using neural networks to estimate parameters in spatial point process models. *Spatial Statistics*, 51, 100668. https://doi.org/10.1016/j.spasta.2022.100668
 - Cameletti, M., Lindgren, F., Simpson, D., & Rue, H. (2013). Spatio-temporal modeling of particulate matter concentration through the SPDE approach. *AStA*, 97(2), 109–131.
 - Gómez-Rubio, V. (2020). *Bayesian inference with INLA*. CRC Press.
 

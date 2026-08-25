@@ -1,3 +1,22 @@
+# =============================================================================
+# SCRIPT: ESDA.R
+# =============================================================================
+# PROPÓSITO:
+#   Análisis exploratorio de datos espaciales para los eventos sísmicos 
+#   de Colombia 2005–2020
+#
+#
+# AUTOR: Jason Mauricio Romero Ríos
+# UNIVERSIDAD: Universidad Distrital Francisco José de Caldas
+# TESIS: Maestría en Ciencias de la Información y Comunicaciones – Geomática
+# =============================================================================
+
+# =============================================================================
+# SECCIÓN 1: CARGA DE PAQUETES
+# =============================================================================
+
+
+
 library(INLA)
 library(sp)
 library(ggplot2)
@@ -39,41 +58,58 @@ library(spatstat.geom)
 library(spatstat.explore)
 library(inlabru)
 library(xtable)
-setwd("/home/jasonromeroia/Documents/Personal/TesisUDFJCMCIC/solucion2025/earthquakes_lgcp_inla/")
+library(prettymapr)
 
-path_image_results = 'imagenes_doc'
+# =============================================================================
+# SECCIÓN 2: CONFIGURACIÓN DE RUTAS Y PARÁMETROS GLOBALES
+# =============================================================================
 
-path_file_seismic = "data_new/EventosColPointsPlanas31162005_2020_continental.gpkg"
-files_rds = "covariables_rds"#"data_rds" #covariables_rds"
-#sismosSp=st_read("/home/jasonromeroia/Documents/Personal/TesisUDFJCMCIC/solucion2025/earthquakes_lgcp_inla/eventos_sismicos1995_2024/eventos_declustering_2000_2020_3116.geojson")
+setwd("/home/jasonromeroia/Documents/personal/Tesis_MCIC/lgcp_inla_spde_sismos/")
+source("scripts/ESDA/utils.R")
 
-sismosSp=st_read(path_file_seismic)
+path_file_seismic <- "Data/gdf_espacial_2005_2020.gpkg" 
+
+# Covariables
+files_rds = "covariables_rds"
 
 
-dept_sp = st_read("/home/jasonromeroia/Documents/Personal/TesisUDFJCMCIC/solucion2025/earthquakes_lgcp_inla/data_new/departamentos_col.geojson")
+logo <- read_png_rgba("imagenes_doc/logo_ud.png")
+logo_grob <- rasterGrob(logo, interpolate = TRUE)
+
+# Capa de Departamentos
+dept_sp = st_read("Data/departamentos_col.gpkg")
 
 
 shapeZona_sp <- readRDS(paste0(files_rds,"/shapeZona_sp"))
 
+# Borde de Colombia
+shapeZona_sp = st_simplify(shapeZona_sp, dTolerance = 5000, preserveTopology = T)
 
-shapeZona_sp = st_simplify(shapeZona_sp, dTolerance = 5000, preserveTopology = T) #20000
-names(sismosSp)
 
-#sismosSp$fecha <- trimws(sismosSp$Date)
-#sismosSp$fecha_convertida <- dmy_hms(sismosSp$fecha)
-#sismosSp$fecha_convertida <- as.Date(sismosSp$fecha_convertida)
-#sismosSp$YEAR <- format(sismosSp$fecha_convertida, "%Y")
+
+# =============================================================================
+# SECCIÓN CARGA DEL CATÁLOGO SÍSMICO 
+# =============================================================================
+
+
+sismosSp=st_read(path_file_seismic)
+
 sismosSp$X = st_coordinates(sismosSp)[,1]
 sismosSp$Y = st_coordinates(sismosSp)[,2]
 
 
 
+# Columnas de interés
 
-columns_view = c("mag")
-column_mag = "mag"
-columns_depth = "depth"
+sprintf(names(sismosSp))
 
+columns_view = c("MAGNITUD_MW")
+column_mag = "MAGNITUD_MW"
+columns_depth = "PROFUNDIDAD_KM"
 
+# Ruta de las imagenes de salida
+path_image_results <- "imagenes_doc"
+dir_out_st <- file.path(path_image_results, "ESDA")
 
 crs_zona <- st_crs(shapeZona_sp)  #EPSG:3116
 if (is.na(crs_zona$epsg) || crs_zona$epsg != 3116) {
@@ -102,6 +138,7 @@ sismos_clip <- st_filter(sismos3116, st_union(shapeZona_sp))
 unique(sismos_clip$YEAR)
 
 
+# Validación Sistema de referencia 3116 
 cat(st_crs(shapeZona_sp)$epsg)
 cat(st_crs(sismos_clip)$epsg)
 cat(st_crs(dept_sp)$epsg)
@@ -113,190 +150,24 @@ sismos_3857     <- st_transform(sismos_clip, 3857)
 bb <- st_bbox(shapeZona_sp_3857)
 
 
-names(sismos_3857)
-
-
-crear_mapa_cientifico_anual <- function(sismos_3857, shapeZona_3857, path_output) {
-  
-  bb <- st_bbox(shapeZona_3857)
-  
-  # Filtrar solo años 2005-2020 y ordenar
-  sismos_filtrado <- sismos_3857 %>%
-    filter(YEAR >= 2005 & YEAR <= 2020) %>%
-    mutate(YEAR = factor(YEAR, levels = 2005:2020))
-  
-  # Crear clasificación de magnitud
-  sismos_filtrado <- sismos_filtrado %>%
-    mutate(
-      mag_clase = cut(
-        mag,
-        breaks = c(0, 3, 4, 5, 6, Inf),
-        labels = c("< 3.0", "3.0 - 4.0", "4.0 - 5.0", "5.0 - 6.0", "> 6.0"),
-        include.lowest = TRUE
-      )
-    )
-  
-  # Contar eventos por año para subtítulo
-  conteo_anual <- sismos_filtrado %>%
-    st_drop_geometry() %>%
-    group_by(YEAR) %>%
-    summarise(n = n(), .groups = "drop")
-  
-  total_eventos <- sum(conteo_anual$n)
-  
-  # Crear el gráfico
-  p_cientifico_anual <- ggplot() +
-    # Contorno de zona de estudio
-    geom_sf(
-      data = shapeZona_3857,
-      fill = NA,
-      color = "gray30",
-      linewidth = 0.3
-    ) +
-    
-    # Sismos con clasificación por magnitud
-    geom_sf(
-      data = sismos_filtrado,
-      aes(fill = mag_clase),
-      shape = 21,
-      color = "gray40",
-      size = 1.2,
-      stroke = 0.15,
-      alpha = 0.75
-    ) +
-    
-    # Paleta de colores secuencial
-    scale_fill_brewer(
-      palette = "YlOrRd",
-      name = "magnitud (ML)",
-      drop = FALSE,
-      na.translate = FALSE
-    ) +
-    
-    # Facetas por año (4 columnas para 16 años)
-    facet_wrap(
-      ~ YEAR,
-      ncol = 4,
-      labeller = labeller(YEAR = function(x) paste0(x))
-    ) +
-    
-    # Coordenadas
-    coord_sf(
-      crs = st_crs(3857),
-      xlim = c(bb["xmin"], bb["xmax"]),
-      ylim = c(bb["ymin"], bb["ymax"]),
-      expand = FALSE
-    ) +
-    
-    # Tema científico minimalista
-    theme_bw(base_size = 9) +
-    theme(
-      # Título y subtítulo
-      plot.title = element_text(
-        face = "bold",
-        size = 14,
-        hjust = 0.5,
-        margin = margin(b = 3)
-      ),
-      plot.subtitle = element_text(
-        size = 9,
-        hjust = 0.5,
-        color = "gray40",
-        margin = margin(b = 8)
-      ),
-      plot.caption = element_text(
-        size = 7,
-        hjust = 1,
-        color = "gray50",
-        margin = margin(t = 10)
-      ),
-      
-      # Paneles de facetas
-      strip.text = element_text(
-        face = "bold",
-        size = 9,
-        color = "gray20",
-        margin = margin(t = 3, b = 3)
-      ),
-      strip.background = element_rect(
-        fill = "gray95",
-        color = "gray70",
-        linewidth = 0.3
-      ),
-      
-      # Panel
-      panel.grid.major = element_line(color = "gray92", linewidth = 0.15),
-      panel.grid.minor = element_blank(),
-      panel.border = element_rect(color = "gray60", linewidth = 0.3),
-      panel.background = element_rect(fill = "white"),
-      panel.spacing = unit(0.3, "lines"),
-      
-      # Ejes
-      axis.title = element_blank(),
-      axis.text = element_blank(),
-      axis.ticks = element_blank(),
-      
-      # Leyenda
-      legend.position = "bottom",
-      legend.direction = "horizontal",
-      legend.title = element_text(face = "bold", size = 9),
-      legend.text = element_text(size = 8),
-      legend.key.size = unit(0.4, "cm"),
-      legend.key.width = unit(0.6, "cm"),
-      legend.background = element_rect(fill = "white", color = "gray60", linewidth = 0.3),
-      legend.margin = margin(5, 10, 5, 10),
-      legend.box.margin = margin(t = 5),
-      
-      # Márgenes generales
-      plot.margin = margin(10, 10, 10, 10),
-      plot.background = element_rect(fill = "white", color = NA)
-    ) +
-    
-    # Guías de leyenda
-    guides(
-      fill = guide_legend(
-        title.position = "left",
-        title.vjust = 0.8,
-        nrow = 1,
-        override.aes = list(size = 3, alpha = 1)
-      )
-    ) +
-    
-    labs(
-      caption = paste0(
-        "Fuente: Servicio Geológico Colombiano | ",
-        "Elaboración: [Institución] | "
-      )
-    )
-  
-  # Guardar en PNG alta resolución
-  ggsave(
-    filename = path_output,
-    plot = p_cientifico_anual,
-    width = 12,
-    height = 14,
-    dpi = 300,
-    bg = "white"
-  )
-  
-  # Retornar el gráfico
-  return(p_cientifico_anual)
-}
 
 
 #####################################################################
 ###### Mapa de eventos sísmicos anual ###############################
 #####################################################################
-sismosSp_2005_2012 = subset(sismos_3857, YEAR >= 2005 & YEAR <= 2012)
-sismosSp_2013_2020 = subset(sismos_3857, YEAR >= 2013 & YEAR <= 2020)
-p1 <- crear_mapa_cientifico_anual(sismosSp_2005_2012, shapeZona_sp_3857, paste0(path_image_results, "/mapa_cientifico_anual2005_2012.png"))
-p2 <- crear_mapa_cientifico_anual(sismosSp_2013_2020, shapeZona_sp_3857, paste0(path_image_results, "/mapa_cientifico_anual2013_2020.png"))
-p3 <- crear_mapa_cientifico_anual(sismos_3857, shapeZona_sp_3857, paste0(path_image_results, "/mapa_cientifico_anual2005_2020.png"))
+#sismosSp_2005_2012 = subset(sismos_3857, YEAR >= 2005 & YEAR <= 2012)
+#sismosSp_2013_2020 = subset(sismos_3857, YEAR >= 2013 & YEAR <= 2020)
+#p1 <- crear_mapa_cientifico_anual(sismosSp_2005_2012, shapeZona_sp_3857, paste0(path_image_results, "/mapa_cientifico_anual2005_2012.png"))
+#p2 <- crear_mapa_cientifico_anual(sismosSp_2013_2020, shapeZona_sp_3857, paste0(path_image_results, "/mapa_cientifico_anual2013_2020.png"))
+eventos_sismicos <- crear_mapa_cientifico_anual(sismos_3857, shapeZona_sp_3857, paste0(path_image_results, "/mapa_cientifico_anual2005_2020.png"))
+
+save_fig(eventos_sismicos, "mapa_cientifico_anual2005_2020.png", 6.5, 6.5)
 
 #####################################################################
 ###### Eventos sísmicos por anno      ###############################
 #####################################################################
 
+unique(sismos_3857$YEAR)
 coords <- st_coordinates(sismos_3857)
 df_pts <- sismos_3857 |>
   st_drop_geometry() |>
@@ -337,37 +208,94 @@ print(
   comment = FALSE                            # remove timestamp comment line
 )
 
+
+to_math_range <- function(x) {
+  y <- gsub("≤", "\\leq", x, fixed = TRUE)
+  paste0("$", y, "$")  # now < is valid as-is in math mode
+}
 conteo_year = conteo_year_porcentaje[,c("YEAR", "n")]
-hist_x_anno = ggplot(conteo_year, aes(x = YEAR, y = n)) +
-  geom_segment(aes(x = YEAR, xend = YEAR, y = 0, yend = n),
-               color = "grey60", linewidth = 1) +
-  geom_point(color = "steelblue", size = 4) +
-  geom_text(aes(label = n), vjust = -0.9, angle = 90, size = 3.5) +
+
+hist_x_anno <- ggplot(conteo_year, aes(x = YEAR, y = n)) +
+  geom_segment(aes(xend = YEAR, y = 0, yend = n),
+               color = "grey78", linewidth = 0.8) +
+  geom_point(color = "#2C6E9B", size = 3.5) +
+  geom_text(aes(label = comma(n)),
+            angle = 90, hjust = -0.35, size = 3.1, color = "grey25") +
   scale_x_continuous(breaks = seq(min(conteo_year$YEAR),
-                                  max(conteo_year$YEAR), 1)) +
-  theme_minimal(base_size = 14) +
+                                  max(conteo_year$YEAR), by = 2)) +
+  scale_y_continuous(labels = comma,
+                     expand = expansion(mult = c(0, 0.15))) +
   labs(
-    x = "Año",
-    y = "Número de registros"
+    title    = "",
+    subtitle = "",
+    x = NULL,
+    y = "Número de registros",
+    caption  = ""
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor   = element_blank(),
+    panel.grid.major.y = element_line(linewidth = 0.3, color = "grey90"),
+    plot.title.position = "plot",
+    plot.title    = element_text(face = "bold", size = 16),
+    plot.subtitle = element_text(color = "grey35", margin = margin(b = 12)),
+    plot.caption  = element_text(color = "grey55", size = 8),
+    axis.title.y  = element_text(margin = margin(r = 8))
   )
 
 
-ggsave(paste0(path_image_results,"/histograma_x_anno.png"), 
-       plot = hist_x_anno, 
-       width = 12, height = 8, dpi = 300)
+save_fig(hist_x_anno, "histograma_x_anno.png", 7.5, 6.5)
 
 
-box_plot_anno = ggplot(df_pts, aes(x = factor(YEAR), y = .data[[column_mag]])) +
+
+
+
+
+
+box_plot_anno = ggplot(df_pts, aes(x = factor(YEAR), y = .data[[columns_view]])) +
   geom_boxplot(outlier.alpha = 0.4) +
-  labs(x = "Año", y = column_mag) +
+  labs(x = "Año", y = "Magnitug Mw") +
   theme_minimal(base_size = 13) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 
-ggsave(paste0(path_image_results,"/box_plot_anno.png"), 
-       plot = box_plot_anno, 
-       width = 12, height = 8, dpi = 300)
 
+save_fig(box_plot_anno, "box_plot_anno.png", 6.5, 4.5)
 
+####### MAGNITUD DE EVENTOS SISMICOS POR BREAKS ###############
+###############################################################
+
+breaks_m <- c(-Inf, 1, 2, 3, 4, 5, 6, 7)
+labels_m <- c(
+  "m < 1",
+  "1 ≤ m < 2",
+  "2 ≤ m < 3",
+  "3 ≤ m < 4",
+  "4 ≤ m < 5",
+  "5 ≤ m < 6",
+  "6 ≤ m < 7"
+)
+
+tabla_mag <- df_pts %>%
+  transmute(
+    bin = cut(.data[[column_mag]], breaks = breaks_m, labels = labels_m, right = FALSE)
+  ) %>%
+  count(bin, name = "Conteo") %>%
+  mutate(`%` = Conteo / sum(Conteo)) %>%
+  mutate(bin = factor(bin, levels = labels_m)) %>%
+  arrange(bin)
+
+# Versión formateada para LaTeX (rangos en modo matemático + escape de %)
+tabla_mag_fmt <- tabla_mag %>%
+  mutate(
+    Conteo_fmt = number(Conteo, big.mark = ".", decimal.mark = ",", accuracy = 1),
+    pct_fmt    = latex_escape(percent(`%`, accuracy = 0.01, decimal.mark = ",")),
+    Magnitud   = to_math_range(bin)
+  ) %>%
+  select(Magnitud, Conteo = Conteo_fmt, `%` = pct_fmt)
+
+print(tabla_mag_fmt)          # tabla legible en consola
+xtable(tabla_mag_fmt)     
 ########################################################
 ### NÚMERO DE EVENTOS POR DEPARTAMENTO #################
 ########################################################
@@ -389,10 +317,8 @@ conteo_dpto_global = ggplot(conteo_dpto,
   ) +
   theme_minimal()
 
-ggsave(paste0(path_image_results,"/conteo_dpto_global.png"), 
-       plot = conteo_dpto_global, 
-       width = 12, height = 8, dpi = 300)
 
+save_fig(conteo_dpto_global, "conteo_dpto_global.png", 6.5, 6.5)
 
 
 conteo_dpto <- sismos_clip %>%
@@ -424,11 +350,8 @@ conteo_depto_anno_10 = ggplot(conteo_top10,
   ) +
   theme_minimal()
 
-ggsave(paste0(path_image_results,"/conteo_depto_anno_10.png"), 
-       plot = conteo_depto_anno_10, 
-       width = 12, height = 8, dpi = 300)
 
-
+save_fig(conteo_depto_anno_10, "conteo_depto_anno_10.png", 8.5, 6.5)
 
 ###############################################################
 ####### PROFUNDIDAD DE EVENTOS SISMICOS POR BREAKS ############
@@ -447,10 +370,6 @@ labels_p <- c(
 )
 
 
-to_math_range <- function(x) {
-  y <- gsub("≤", "\\leq", x, fixed = TRUE)
-  paste0("$", y, "$")  # now < is valid as-is in math mode
-}
 names(df_pts)
 tabla_depth <- df_pts %>%
   transmute(
@@ -482,28 +401,26 @@ xtable(tabla_depth_fmt)
 
 box_plot_depth = ggplot(df_pts, aes(x = factor(YEAR), y = .data[[columns_depth]])) +
   geom_boxplot(outlier.alpha = 0.4) +
-  labs(x = "Año", y = columns_depth) +
+  labs(x = "Año", y = "Profundidad (km)") +
   theme_minimal(base_size = 13) +
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5))
 
-ggsave(paste0(path_image_results,"/box_plot_depth_anno.png"), 
-       plot = box_plot_depth, 
-       width = 12, height = 8, dpi = 300)
+
+save_fig(box_plot_depth, "box_plot_depth_anno.png", 6.5, 6.5)
 
 #####################################################################################
 ############### Fallas Geológicas ###################################################
 #####################################################################################
-falla_rumbo_sinestral = st_read("data/shapefile/fallas/falla_rumbo_sinestral.shp")
+falla_rumbo_sinestral = readRDS("Data/Covariables/falla_rumbo_sinestral.rds")
 ## dextral
-falla_rumbo_dextral = st_read("data/shapefile/fallas/falla_rumbo_dextral.shp")
+falla_rumbo_dextral = readRDS("Data/Covariables/falla_rumbo_dextral.rds")
 ## normal
-falla_normal = st_read("data/shapefile/fallas/falla_normal.shp")
+falla_normal = readRDS("Data/Covariables/falla_normal.rds")
 ## inversas
-falla_inversa = st_read("data/shapefile/fallas/falla_inversa.shp")
+falla_inversa = readRDS("Data/Covariables/falla_inversa.rds")
 
-#lineamientos = st_read("data/shapefile/fallas/lineamiento.shp")
 
-pliegues = st_read("data/shapefile/pliegues/pliegues.shp")
+pliegues = readRDS("Data/Covariables/pliegues.rds")
 
 crs_target  = 3857
 layers <- list(
@@ -567,128 +484,25 @@ header_map_basic <- paste0(
   "Universidad Distrital Francisco José de Caldas \n",
   "\n",
   "Maestría en Ciencias de la Información \n",
-  "y Comunicaciones Énfasis en Geomática\n",
+  "y Comunicaciones\n",
   "\n",
   "Elaborado por: Jason Romero\n\n",
   "Sistema de Referencia: EPSG:3857\n\n"
 )
 
-read_png_rgba <- function(path) {
-  x <- png::readPNG(path)
-  d <- dim(x)
-  if (length(d) == 2) {
-    # gris -> replicar a RGB
-    x <- array(rep(x, 3), dim = c(d[1], d[2], 3))
-  } else if (d[3] == 2) {
-    # gris + alpha -> expandir a RGBA
-    rgb   <- x[, , 1]
-    alpha <- x[, , 2]
-    x2 <- array(0, dim = c(d[1], d[2], 4))
-    x2[, , 1] <- rgb
-    x2[, , 2] <- rgb
-    x2[, , 3] <- rgb
-    x2[, , 4] <- alpha
-    x <- x2
-  }
-  x
-}
-# --- 3) Cargar la imagen y crear el grob (sin magick) ---
-logo <- read_png_rgba("imagenes_doc/logo_ud.png")
-logo_grob <- rasterGrob(logo, interpolate = TRUE)
+
+
+
 
 # Contar eventos totales para subtítulo
 total_eventos <- nrow(sismos_3857)
 
-# Mapa con estilo científico similar a crear_mapa_cientifico_anual
-p_dist <- ggplot() +
-  # Contorno de zona de estudio
-  geom_sf(
-    data = shapeZona_sp_3857,
-    fill = NA,
-    color = "gray30",
-    linewidth = 0.3
-  ) +
 
-  # Sismos (puntos simples, sin clasificación)
-  geom_sf(
-    data = sismos_3857,
-    color = "#3B528B",
-    size = 0.5,
-    alpha = 0.6
-  ) +
 
-  # Coordenadas
-  coord_sf(
-    crs = st_crs(3857),
-    expand = FALSE
-  ) +
 
-  # Tema científico minimalista (igual que crear_mapa_cientifico_anual)
-  theme_bw(base_size = 9) +
-  theme(
-    # Título y subtítulo
-    plot.title = element_text(
-      face = "bold",
-      size = 14,
-      hjust = 0.5,
-      margin = margin(b = 3)
-    ),
-    plot.subtitle = element_text(
-      size = 9,
-      hjust = 0.5,
-      color = "gray40",
-      margin = margin(b = 8)
-    ),
-    plot.caption = element_text(
-      size = 7,
-      hjust = 1,
-      color = "gray50",
-      margin = margin(t = 10)
-    ),
+#header_con_estructuras <- paste0(header_map_basic, "Estructuras")
+titulo_leyenda <- "Estructuras geológicas"
 
-    # Panel
-    panel.grid.major = element_line(color = "gray92", linewidth = 0.15),
-    panel.grid.minor = element_blank(),
-    panel.border = element_rect(color = "gray60", linewidth = 0.3),
-    panel.background = element_rect(fill = "white"),
-
-    # Ejes
-    axis.title = element_blank(),
-    axis.text = element_blank(),
-    axis.ticks = element_blank(),
-
-    # Márgenes generales
-    plot.margin = margin(10, 10, 10, 10),
-    plot.background = element_rect(fill = "white", color = NA)
-  ) +
-
-  labs(
-    title = "Distribución de Eventos Sísmicos en Colombia (2005-2020)",
-    subtitle = paste0("Total de eventos: ", format(total_eventos, big.mark = ".", decimal.mark = ",")),
-    caption = paste0(
-      "Fuente: Servicio Geológico Colombiano | ",
-      "Elaboración: Jason Romero"
-    )
-  )
-
-# --- Composición final con logo y header (similar a p_topo_final y p_isostasia_final) ---
-p_dist_final <- ggdraw() +
-  draw_plot(p_dist) +
-  draw_grob(logo_grob, x = 0.82, y = 0.90, width = 0.18, height = 0.18,
-            hjust = 0.5, vjust = 1) +
-  draw_text(header_map_basic,
-            x = 0.82, y = 0.70,
-            hjust = 0.5, vjust = 1,
-            size = 9, lineheight = 1)
-
-# Mostrar
-print(p_dist_final)
-
-ggsave(paste0(path_image_results,"/mapa_sismos.png"), 
-       plot = p_dist_final, 
-       width = 12, height = 8, dpi = 300)
-
-header_con_estructuras <- paste0(header_map_basic, "Estructuras")
 # --- 2) Mapa con la leyenda (incluye el header como title) ---
 p <- ggplot() +
   annotation_map_tile(
@@ -697,8 +511,8 @@ p <- ggplot() +
     cachedir = tempdir()   # para cache local
   ) +
   geom_sf(data = capas_union, aes(color = tipo, linetype = tipo), linewidth = 0.5) +
-  scale_color_manual(values = cols, name = header_con_estructuras) +
-  scale_linetype_manual(values = lts, name = header_con_estructuras) +
+  scale_color_manual(values = cols, name = titulo_leyenda) +
+  scale_linetype_manual(values = lts, name = titulo_leyenda) +
   guides(
     color    = guide_legend(override.aes = list(linewidth = 1), byrow = TRUE),
     linetype = guide_legend(byrow = TRUE)
@@ -724,46 +538,23 @@ p <- ggplot() +
 # --- 4) Componer: colocar el logo por encima de la zona de la leyenda ---
 # Ajusta x/y/width/height para posicionarlo exactamente donde lo quieres
 final_plot <- ggdraw(p) +
-  draw_grob(logo_grob, x = 0.75, y = 0.9, width = 0.18, height = 0.18,
+  draw_grob(logo_grob, x = 0.82, y = 0.9, width = 0.18, height = 0.18,
             hjust = 0.5, vjust = 1)
 
 
-ggsave(paste0(path_image_results,"/fallas.png"), 
-       plot = final_plot, 
-       width = 12, height = 8, dpi = 300)
 
 
+save_fig(final_plot, "fallas.png", 8.5, 8.5)
 
 #####################################################################################
 ############### Topografia        ###################################################
 #####################################################################################
 
 
-reproj_rast <- function(r, target_epsg = 3116, method = "bilinear") {
-  
-  # --- 1. Acepta tanto Raster* como SpatRaster ----------------------------
-  is_raster <- inherits(r, "Raster")
-  if (is_raster) r <- terra::rast(r)
-  
-  # --- 2. ¿Comparte CRS con el objetivo? ----------------------------------
-  tgt_crs <- paste0("EPSG:", target_epsg)
-  needs_proj <- !terra::same.crs(r, tgt_crs)   # FALSE si ya coincide
-  
-  # --- 3. Reproyecta solo cuando es necesario -----------------------------
-  if (needs_proj) {
-    message("   reproyectando a ", tgt_crs, " …")
-    r <- terra::project(r, tgt_crs, method = method)
-  } else {
-    message("   CRS ya es ", tgt_crs)
-  }
-  
-  # --- 4. Devuelve en la misma clase que entró ----------------------------
-  if (is_raster) r <- raster::brick(r)
-  return(r)
-}
 
 
-topography <- terra::rast("data/raster/Topography_Colombia_2000m.tif")
+
+topography = readRDS("Data/Covariables/topography.rds")
 topography = reproj_rast(topography, 3857)
 topography[topography == 0] <- NA
 
@@ -814,13 +605,10 @@ p_topo_final <- ggdraw() +
   # Ajusta x/y/width/height para ubicar la leyenda donde te convenga
   draw_plot(legend_topo, x = 0.74, y = 0.27, width = 0.18, height = 0.28)
 
-p_topo_final
-ggsave(paste0(path_image_results,"/topografia.png"), 
-       plot = p_topo_final, 
-       width = 14, height = 8, dpi = 300)
 
 
 
+save_fig(p_topo_final, "topografia.png", 14, 8)
 
 
 #####################################################################################
@@ -828,8 +616,7 @@ ggsave(paste0(path_image_results,"/topografia.png"),
 #####################################################################################
 
 
-
-isostasia <- terra::rast("data/raster/mosaico_isostasia_cor.tif")
+isostasia = readRDS("Data/Covariables/isostasia.rds")
 isostasia = reproj_rast(isostasia, 3857)
 summary(isostasia$mosaico_isostasia_cor)
 
@@ -894,12 +681,8 @@ p_isostasia_final <- ggdraw() +
   draw_plot(legend_isostasia, x = 0.74, y = 0.27, width = 0.18, height = 0.28)
 
 p_isostasia_final
-ggsave(paste0(path_image_results,"/p_isostasia_final.png"), 
-       plot = p_isostasia_final, 
-       width = 14, height = 8, dpi = 300)
 
-
-
+save_fig(p_isostasia_final, "p_isostasia_final.png", 14, 8)
 
 #####################################################################################
 ############### Análisis de Aleatoriedad Espacial Completa – CSR      ###################################################
@@ -912,12 +695,13 @@ plot(pSismos$window)
 Cuad1 <- quadratcount(pSismos,ny=6,nx=6)
 Cuad2 <- quadrat.test(pSismos,ny=6,nx=6)
 
-png(paste0(path_image_results,"/mCuadCount.png",width = 1024, height = 1024, pointsize = 20))
+png(paste0(path_image_results,"/ESDA/mCuadCount.png",width = 1024, height = 1024, pointsize = 20))
+
 plot(Cuad1,cex=1,main="",col="blue")
 dev.off() ###
 
 
-png(paste0(path_image_results,"/mCuadCountResiduales.png",width = 1024, height = 800, pointsize = 20))
+png(paste0(path_image_results,"/ESDA/mCuadCountResiduales.png",width = 1024, height = 800, pointsize = 20))
 op <- par(mfrow = c(1, 2), mar = c(4, 4, 3, 1))
 
 # Gráfico 1: Observados vs Esperados
@@ -942,151 +726,4 @@ par(op)
 dev.off() ###
 
 
-
-################################################################################
-####### 
-
-#####################################################################################
-############### Mapa de Sismos con Zoom a Zona de Interés ###########################
-############### Sin API Key - Tiles Gratuitos #######################################
-#####################################################################################
-
-# Librerías necesarias
-library(sf)
-library(ggplot2)
-library(ggspatial)
-library(cowplot)
-library(png)
-library(grid)
-
-# === 1) Cargar zona de interés ===
-zona_interes <- st_read("/home/jasonromeroia/Documents/Personal/TesisUDFJCMCIC/solucion2025/earthquakes_lgcp_inla/data_new/zona_interes.gpkg")
-
-# === 2) Transformar a EPSG:3857 (Web Mercator) ===
-crs_target <- 3857
-zona_interes_3857 <- st_transform(zona_interes, crs_target)
-
-# Asegurarse que sismos también esté en 3857
-# (Asumiendo que ya tienes sismos_3857 cargado de tu código anterior)
-
-# === 3) Obtener bbox de la zona de interés para el zoom ===
-bbox_zona <- st_bbox(zona_interes_3857)
-
-# Añadir un pequeño buffer al bbox (5% de margen)
-margin_x <- (bbox_zona["xmax"] - bbox_zona["xmin"]) * 0.05
-margin_y <- (bbox_zona["ymax"] - bbox_zona["ymin"]) * 0.05
-
-xlim <- c(bbox_zona["xmin"] - margin_x, bbox_zona["xmax"] + margin_x)
-ylim <- c(bbox_zona["ymin"] - margin_y, bbox_zona["ymax"] + margin_y)
-
-# === 4) Header del mapa ===
-header_map_basic <- paste0(
-  "Universidad Distrital Francisco José de Caldas \n",
-  "\n",
-  "Maestría en Ciencias de la Información \n",
-  "y Comunicaciones Énfasis en Geomática\n",
-  "\n",
-  "Elaborado por: Jason Romero\n\n",
-  "Sistema de Referencia: EPSG:3857\n\n"
-)
-
-# === 5) Función para leer PNG ===
-read_png_rgba <- function(path) {
-  x <- png::readPNG(path)
-  d <- dim(x)
-  if (length(d) == 2) {
-    x <- array(rep(x, 3), dim = c(d[1], d[2], 3))
-  } else if (d[3] == 2) {
-    rgb   <- x[, , 1]
-    alpha <- x[, , 2]
-    x2 <- array(0, dim = c(d[1], d[2], 4))
-    x2[, , 1] <- rgb
-    x2[, , 2] <- rgb
-    x2[, , 3] <- rgb
-    x2[, , 4] <- alpha
-    x <- x2
-  }
-  x
-}
-
-# Cargar logo
-logo <- read_png_rgba("imagenes_doc/logo_ud.png")
-logo_grob <- rasterGrob(logo, interpolate = TRUE)
-
-
-
-p_zona <- ggplot() +
-  annotation_map_tile(
-    type = "osm",           
-    zoom = 14,               
-    cachedir = tempdir()
-  ) +
-  geom_sf(
-    data = zona_interes_3857, 
-    fill = NA, 
-    color = "red", 
-    linewidth = 1.5,
-    linetype = "solid"
-  ) +
-  geom_sf(
-    data = sismos_3857, 
-    color = "#3B528B", 
-    size = 1.5, 
-    alpha = 0.01          # Alta transparencia
-  ) +
-  # Zoom a la zona de interés
-  coord_sf(
-    xlim = xlim, 
-    ylim = ylim, 
-    expand = FALSE
-  ) +
-  # Escala
-  annotation_scale(
-    location = "bl", 
-    text_cex = 0.8, 
-    line_width = 0.6, 
-    height = unit(0.2, "cm")
-  ) +
-  # Norte
-  annotation_north_arrow(
-    location = "tr", 
-    which_north = "true",
-    style = north_arrow_fancy_orienteering,
-    height = unit(1.1, "cm"), 
-    width = unit(1.1, "cm")
-  ) +
-  # Tema
-  theme_minimal(base_size = 12) +
-  theme(
-    panel.grid = element_blank(),
-    axis.title = element_blank(),
-    legend.position = "none",
-    panel.grid.major = element_line(linewidth = 0.2, colour = "grey85")
-  )
-
-
-p_zona_final <- ggdraw() +
-  draw_plot(p_zona) +
-  draw_grob(
-    logo_grob, 
-    x = 0.83, y = 0.90, 
-    width = 0.18, height = 0.18,
-    hjust = 0.5, vjust = 1
-  ) +
-  draw_text(
-    header_map_basic, 
-    x = 0.83, y = 0.7, 
-    hjust = 0.5, vjust = 1, 
-    size = 9
-  )
-
-# Mostrar
-print(p_zona_final)
-
-# === 8) Guardar ===
-ggsave(
-  paste0(path_image_results, "/mapa_sismos_zona_interes.png"), 
-  plot = p_zona_final, 
-  width = 12, height = 8, dpi = 300
-)
 
